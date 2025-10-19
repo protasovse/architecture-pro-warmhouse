@@ -1,0 +1,206 @@
+openapi: 3.0.3
+info:
+  title: Smart Home API
+  version: "1.0.0"
+  description: API для управления сенсорами умного дома
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /api/v1/sensors:
+    get:
+      summary: Список сенсоров
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Sensor" }
+    post:
+      summary: Создать сенсор
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SensorCreate" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sensor" }
+        "400":
+          description: Неверные данные
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/sensors/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Детали сенсора
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sensor" }
+        "404":
+          description: Не найден
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      summary: Полное обновление сенсора
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SensorUpdate" }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sensor" }
+        "400":
+          description: Неверные данные
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Не найден
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Удалить сенсор
+      responses:
+        "204":
+          description: Удалено
+        "404":
+          description: Не найден
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/sensors/{id}/value:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer }
+    patch:
+      summary: Обновить значение и статус сенсора
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SensorValueUpdate" }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Sensor value updated successfully }
+        "400":
+          description: Неверные данные
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Не найден
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/sensors/temperature/{location}:
+    parameters:
+      - in: path
+        name: location
+        required: true
+        schema: { type: string }
+        example: Living Room
+    get:
+      summary: Текущая температура по локации
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemperatureResponse" }
+        "404":
+          description: Данные не найдены
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  schemas:
+    Sensor:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string, example: Living Room Temperature }
+        type: { type: string, enum: [ temperature ], example: temperature }
+        location: { type: string, example: Living Room }
+        value: { type: number, format: double, nullable: true, example: 22.5 }
+        unit: { type: string, example: "°C" }
+        status: { type: string, example: active }
+        last_updated: { type: string, format: date-time, example: 2025-10-18T20:15:30Z }
+        created_at: { type: string, format: date-time, example: 2025-10-18T18:00:00Z }
+    SensorCreate:
+      type: object
+      required: [ name, type, location ]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [ temperature ] }
+        location: { type: string }
+        unit: { type: string, example: "°C" }
+    SensorUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [ temperature ] }
+        location: { type: string }
+        value: { type: number, format: double, nullable: true }
+        unit: { type: string }
+        status: { type: string, example: active }
+    SensorValueUpdate:
+      type: object
+      required: [ value, status ]
+      properties:
+        value: { type: number, format: double, example: 23.1 }
+        status: { type: string, example: active }
+    TemperatureResponse:
+      type: object
+      properties:
+        location: { type: string, example: Living Room }
+        temperature: { type: number, format: double, example: 22.8 }
+        unit: { type: string, example: "°C" }
+        observed_at: { type: string, format: date-time, example: 2025-10-18T20:15:30Z }
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: not found }
