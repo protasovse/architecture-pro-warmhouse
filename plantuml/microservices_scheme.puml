@@ -1,0 +1,61 @@
+```puml
+@startuml
+!include ./libs/C4.puml
+!include ./libs/C4_Container.puml
+
+Person(user, "Пользователь", "Управляет домом, смотрит телеметрию")
+
+System_Boundary(saas, "SmartHome SaaS система") {
+  System_Boundary(domain_tenant, "Домен управления тенантами, пользователями, локациями, устройствами") {
+    System_Boundary(tenant_context, "Контекст управления тенантами и пользователями") {
+      Container(tenant_admin_service, "Сервис управления тенантами и пользователями", "Получает список и детали датчика. Добавляет, изменяет, удаляет датчики")
+    }
+    System_Boundary(device_context, "Контекст управления локациями и устройствами") {
+      System_Boundary(device_context, "Контекст управления локациями и устройствами") {
+          Container(device_admin_service, "Сервис управления локациями и устройствами")
+      }
+    }
+  }
+  System_Boundary(domain_devices, "Домен интеграции и получения данных с датчиков") {
+    System_Boundary(receive_context, "Контекст получения данных с датчиков") {
+      Container(sensor_read_service, "Сервис чтения сырых данных с датчиков", "Получает сырые данные с датчика, записывает во внутреннюю шину")
+    }
+  }
+  System_Boundary(domain_telemetry, "Домен телеметрии") {
+    System_Boundary(telemetry_write_context, "Контекст сохранения данных телеметрии") {
+      Container(adapt_save_sensor_data_service, "Читает внутреннюю шину (kafka), обрабатывает данные, сохраняет в БД")
+    }
+    System_Boundary(telemetry_query_context, "Контекст чтения, запросов данных телеметрии") {
+      Container(telemetry_query_service, "Сервис получения данных телеметрии", "Возвращает исторические данные телементрии из БД")
+    }
+  }
+  System_Boundary(domain_external_integration, "Домен алертинга (управления связными устройствами)") {
+    System_Boundary(user_alerting_context, "Контекст оповещения пользователей") {
+      Container(automation_service, "Сервис автоматизации", "Читает данные из топика kafka и управляет другими устройствами в зависимости от параметров от датчиков")
+    }
+    System_Boundary(manage_relation_devices_context, "Контекст управления связными устройствами") {
+      Container(alerting_service, "Сервис оповещения", "Читает данные из топика kafka и оповещает пользователя")
+    }
+  }
+  Container(bus, "Шина проекта")
+}
+
+System_Ext(devices, "Датчики температуры")
+System_Ext(controlled_devices, "Устройства", "Свет, Автоматические ворота, отопление, и тд.")
+System_Ext(ext_alert_devices, "Устройства для оповещения пользователя", "Мобильный телефон, почта, и тд.")
+
+Rel(user, tenant_admin_service, "Регистрация", "Регистрация, автоматическое создание тенанта")
+Rel(user, device_admin_service, "Добавить/удалить локацию, датчик, настроить условия срабатывания алертов, действий управления")
+Rel(user, telemetry_query_service, "Получение исторических данных")
+
+Rel(devices, sensor_read_service, "Получение данных с датчиков")
+
+Rel(sensor_read_service, bus, "Запись сырых данных в шину")
+Rel(bus, adapt_save_sensor_data_service, "Сохранение данных в БД")
+Rel(bus, automation_service, "Чтение данных")
+Rel(bus, alerting_service, "Чтение данных")
+
+Rel(automation_service, controlled_devices, "Чтение данных")
+Rel(alerting_service, ext_alert_devices, "Чтение данных")
+@enduml
+```

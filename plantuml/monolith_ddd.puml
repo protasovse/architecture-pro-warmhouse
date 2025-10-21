@@ -1,0 +1,29 @@
+```puml
+@startuml
+
+!include ./libs/C4_Context.puml
+!include ./libs/C4_Container.puml
+
+Person(specialist, "Специалист по подключению")
+Person(user, "Пользователь")
+
+System_Boundary(sys, "Система управления датчиками температуры") {
+    System_Boundary(sensor_domain, "Домен управления датчиками и температурой") {
+        System_Boundary(sensor_admin_context, "Контекст управления датчиками") {
+          Container(sensor_admin_service, "Сервис управления датчиками", "Получает список и детали датчика. Добавляет, изменяет, удаляет датчики")
+        }
+        System_Boundary(temperature_admin_context, "Контекст управления отоплением") {
+          Container(heating_admin_service, "Сервис управления отоплением", "Получает текущую темпреатуру. Устанавливае температуру отопления")
+        }
+    }
+}
+
+System_Ext(tempapi, "Датчики температуры")
+
+Rel(specialist, sensor_admin_service, "Датчик температуры", "Rest API")
+Rel(user, heating_admin_service, "Отопление", "Rest API")
+
+Rel(heating_admin_service, tempapi, "Запрос", "HTTP /temperature?location=<string> / JSON")
+
+@enduml
+```
