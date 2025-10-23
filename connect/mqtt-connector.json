@@ -1,0 +1,16 @@
+{
+    "name": "mqtt-source-connector",
+    "config": {
+        "connector.class": "com.datamountaineer.streamreactor.connect.mqtt.source.MqttSourceConnector",
+        "tasks.max": "1",
+        "connect.mqtt.hosts": "tcp://mosquitto:1883",
+        "connect.mqtt.service.quality": "1",
+        "connect.mqtt.clean": "true",
+        "connect.mqtt.client.id": "kafka-connect-mqtt",
+        "connect.mqtt.subscriptions": "zigbee2mqtt/+,home/sensor/#",
+        "connect.mqtt.kcql": "INSERT INTO mqtt-raw SELECT * FROM /",
+        "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+        "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "value.converter.schemas.enable": "false"
+    }
+}

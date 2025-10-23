@@ -1,0 +1,133 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smarthome-micro-postgres
+    env_file:
+      - apps/.env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - smarthome-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  swagger:
+    image: swaggerapi/swagger-ui
+    container_name: smarthome-micro-swagger
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./openapi.yaml:/openapi/openapi.yaml:ro
+    environment:
+      SWAGGER_JSON: /openapi/openapi.yaml
+    networks:
+      - smarthome-network
+
+  # Одноброкерный Kafka в KRaft-режиме
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: smarthome-micro-kafka
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@smarthome-micro-kafka:9093"
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://smarthome-micro-kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"     # удобно на старте
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0" # ускоряет подключение консюмеров
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk          # валидный пример для KRaft
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - smarthome-network
+    # Healthcheck, чтобы зависимости ждали готовности брокера
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  kafka-topic-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: smarthome-micro-kafka-topic-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TOPIC: ${TOPIC:-parameters}
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-1}
+    networks:
+      - smarthome-network
+    command: >
+      bash -lc "echo \"Ensuring topic: $TOPIC\" &&
+      kafka-topics --bootstrap-server smarthome-micro-kafka:9092 --create --if-not-exists
+      --topic \"$TOPIC\" --partitions \"$KAFKA_TOPIC_PARTITIONS\" --replication-factor 1 &&
+      echo \"Topic $TOPIC is ready.\""
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    container_name: smarthome-micro-redpanda-console
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy     # Ждать готовности Kafka
+    environment:
+      # главное — корректный bootstrap и отключенный schema registry
+      KAFKA_BROKERS: smarthome-micro-kafka:9092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "false"  # <-- было SCHEMA_REGISTRY_ENABLED
+      SERVER_LISTENPORT: "8080"
+    networks:
+      - smarthome-network
+
+  device-gateway:
+    build:
+      context: ./device-gateway
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-device-gateway
+    restart: always
+    ports:
+      - "8008:8008"
+    env_file:
+      - .env
+    environment:
+      # Явно прокинем bootstrap на случай, если в .env нет/не совпадает
+      KAFKA_BOOTSTRAP_SERVERS: smarthome-micro-kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy     # Ждать готовности Kafka
+    command: >
+      sh -c "poetry run uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8008
+      --workers $(python -c 'import multiprocessing as m; print(max(1, m.cpu_count() // 2))')
+      --log-level info"
+    networks:
+      - smarthome-network
+
+volumes:
+  postgres_data:
+  kafka_data:
+
+networks:
+  smarthome-network:
+    driver: bridge

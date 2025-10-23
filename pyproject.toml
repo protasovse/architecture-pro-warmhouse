@@ -1,0 +1,39 @@
+[tool.ruff]
+
+line-length = 88
+indent-width = 4
+target-version = "py313"
+
+exclude = [
+    "*",
+    "!*.py",
+    "b3_bpmn",
+    "b3_db_constructor",
+    "b3platform",
+    "front",
+    "scripts",
+    "integrations/platformv_iam",
+]
+
+
+[tool.ruff.lint]
+select = [
+    "E", # Ошибки PEP8
+    "F", # Pyflakes (неиспользуемые переменные, функции и импорты)
+    "W", # Предупреждения PEP8
+    "C90", # Ошибки стиля (например, отсутствие docstrings)
+    "I", # Упорядочение импортов
+    "T", # Проверка аннотаций типов
+]
+
+ignore = [
+    "E501", # Разрешаем длину строки для black
+    "E203", # Разрешаем пробелы перед ':' для black
+    "F403", # Import *
+    "F405", # May be undefined, or defined from star imports
+]
+
+fixable = ["ALL"]
+
+[tool.ruff.format]
+quote-style = "double"
