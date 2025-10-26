@@ -147,6 +147,22 @@ services:
     networks:
       - smarthome-network
 
+  telemetry-service:
+    build:
+      context: ./telemetry-service
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-telemetry-service
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      poetry run python -m app.main
+    networks:
+      - smarthome-network
+
 volumes:
   postgres_data:
   kafka_data:
