@@ -1,37 +1,28 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, NewType, final
+from typing import Callable, final
 
-from get_exceede_alerts import get_exceeded_alerts
-from render_alert_message import render_alert_message
-from send_telegram_alert import send_telegram_alert
-
-from .schemas import DeviceParameters
+from app.get_exceede_alerts import get_exceeded_alert, get_exceeded_control
+from app.schemas import DeviceParameters
 
 logger = logging.getLogger(__name__)
-
-SerialNumber = NewType("SerialNumber", str)
 
 
 @final
 @dataclass(frozen=True, kw_only=True, slots=True)
 class MessageHandler:
-    exceeded_alerts_getter: Callable = get_exceeded_alerts
-    alert_message_getter: Callable = render_alert_message
-    telegram_alert_sender: Callable = send_telegram_alert
+    exceeded_alert_getter: Callable[[DeviceParameters], bool] = get_exceeded_alert
+    exceeded_control_getter: Callable[[DeviceParameters], bool] = get_exceeded_control
 
-    async def __call__(self, device_data: DeviceParameters):
-        alert_settings = await self.alert_settings_getter(device_data.serial)
+    async def __call__(self, device_data: DeviceParameters) -> tuple[bool, bool]:
+        is_alert = await self.exceeded_alert_getter(device_data)
+        if is_alert:
+            """Оповещаем пользователя"""
+            logger.warning("Оповещаем пользователя")
 
-        alerts: list[AlertExceededSchema] = await self.exceeded_alerts_getter(
-            device_data,
-            alert_settings,
-            self.redis_client,
-        )
+        is_control = await self.exceeded_control_getter(device_data)
+        if is_control:
+            """Отправляем сигнал контроля на устройство"""
+            logger.warning("Отправляем сигнал контроля на устройство")
 
-        for alert in alerts:
-            msg = render_alert_message(alert)
-            channel = alert.subscription.channel
-
-            if channel.type == "telegram":
-                await send_telegram_alert(channel, msg)
+        return is_alert, is_control

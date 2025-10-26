@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: smarthome-micro-postgres
     env_file:
-      - apps/.env
+      - .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -23,6 +23,8 @@ services:
   swagger:
     image: swaggerapi/swagger-ui
     container_name: smarthome-micro-swagger
+    env_file:
+      - .env
     ports:
       - "8082:8080"
     volumes:
@@ -32,30 +34,15 @@ services:
     networks:
       - smarthome-network
 
-  # Одноброкерный Kafka в KRaft-режиме
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: smarthome-micro-kafka
-    environment:
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_NODE_ID: 1
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@smarthome-micro-kafka:9093"
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://smarthome-micro-kafka:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"     # удобно на старте
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0" # ускоряет подключение консюмеров
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk          # валидный пример для KRaft
+    env_file:
+      - .env
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
       - smarthome-network
-    # Healthcheck, чтобы зависимости ждали готовности брокера
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
       interval: 5s
@@ -71,9 +58,6 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    environment:
-      TOPIC: ${TOPIC:-parameters}
-      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-1}
     networks:
       - smarthome-network
     command: >
@@ -85,19 +69,45 @@ services:
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:latest
     container_name: smarthome-micro-redpanda-console
+    env_file:
+      - .env
     restart: always
     ports:
       - "8080:8080"
     depends_on:
       kafka:
         condition: service_healthy     # Ждать готовности Kafka
-    environment:
-      # главное — корректный bootstrap и отключенный schema registry
-      KAFKA_BROKERS: smarthome-micro-kafka:9092
-      KAFKA_SCHEMAREGISTRY_ENABLED: "false"  # <-- было SCHEMA_REGISTRY_ENABLED
-      SERVER_LISTENPORT: "8080"
     networks:
       - smarthome-network
+
+  admin-service:
+    build:
+      context: ./admin-service
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-admin-service
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DEBUG: False  # Переопределяем
+    depends_on:
+      - postgres
+    volumes:
+      - django_static_volume:/app/staticfiles
+      - django_media_volume:/app/media
+    networks:
+      - smarthome-network
+    command: >
+      sh -c "cd /app &&
+      poetry run python manage.py migrate &&
+      poetry run python manage.py collectstatic --noinput &&
+      if [ \"$DEBUG\" = \"True\" ]; then
+        poetry run python manage.py runserver 0.0.0.0:8000;
+      else
+        poetry run daphne -b 0.0.0.0 -p 8000 config.asgi:application;
+      fi"
 
   device-gateway:
     build:
@@ -109,12 +119,9 @@ services:
       - "8008:8008"
     env_file:
       - .env
-    environment:
-      # Явно прокинем bootstrap на случай, если в .env нет/не совпадает
-      KAFKA_BOOTSTRAP_SERVERS: smarthome-micro-kafka:9092
     depends_on:
       kafka:
-        condition: service_healthy     # Ждать готовности Kafka
+        condition: service_healthy
     command: >
       sh -c "poetry run uvicorn app.main:app
       --host 0.0.0.0
@@ -124,9 +131,27 @@ services:
     networks:
       - smarthome-network
 
+  alert-worker:
+    build:
+      context: ./alert-worker
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-alert-worker
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      poetry run python -m app.main
+    networks:
+      - smarthome-network
+
 volumes:
   postgres_data:
   kafka_data:
+  django_static_volume:
+  django_media_volume:
 
 networks:
   smarthome-network:

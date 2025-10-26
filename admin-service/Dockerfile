@@ -15,4 +15,6 @@ ENV POETRY_VIRTUALENVS_PATH=/usr/src/.venv \
     POETRY_VIRTUALENVS_IN_PROJECT=0
 RUN poetry install --only main --no-root --no-cache
 
-COPY app /app/app
+COPY manage.py /app/
+COPY apps /app/apps
+COPY config /app/config
