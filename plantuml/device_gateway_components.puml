@@ -1,0 +1,24 @@
+```puml
+@startuml
+!include ./libs/C4.puml
+!include ./libs/C4_Component.puml
+
+
+title Device Gateway — Components
+
+
+Container(device_gateway, "Device Gateway", "FastAPI") {
+  Component(api, "API Endpoints", "fastapi.APIRouter", "/send-parameters")
+  Component(schema,"Schemas","pydantic","DeviceParameters")
+  Component(service,"SendParametersService","dataclass","Формирует и отправляет сообщения в Kafka")
+  Component(prod,"KafkaProducer","aiokafka.AIOKafkaProducer","Singleton wrapper")
+}
+
+
+Rel(api, schema, "validate")
+Rel(api, service, "calls")
+Rel(service, prod, "send(topic, key, value)")
+
+
+@enduml
+```

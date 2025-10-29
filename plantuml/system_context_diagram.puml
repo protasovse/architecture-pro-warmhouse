@@ -1,0 +1,42 @@
+```puml
+@startuml
+!include ./libs/C4.puml
+!include ./libs/C4_Container.puml
+
+
+title SmartHome — System context diagram
+
+
+Person(user, "Пользователь", "Владелец дома")
+System_Ext(sensors, "Датчики и устройства", "Публикуют телеметрию")
+System_Ext(ext_client, "Почта, телеграм, и тд", "Уведомления пользователя")
+
+
+System_Boundary(smarthome, "SmartHome платформа") {
+  Container_Boundary(gateway_ctx,"Контекст приёма телеметрии") {
+    Container(device_gateway, "Device Gateway", "FastAPI", "Принимает HTTP запросы от устройств/API и публикует в Kafka (topic: parameters)")
+  }
+  Container_Boundary(streaming,"Стриминг телеметрии") {
+    Container(kafka, "Kafka", "Broker", "Очередь сообщений")
+    Container(telemetry_svc,"Telemetry Service","Python + aiokafka","Читает из Kafka и пишет в Postgres")
+    Container(alert_worker,"Alert Worker","Python + aiokafka","Читает из Kafka, применяет правила (WIP)")
+  }
+  Container_Boundary(admin,"Администрирование") {
+    Container(admin_service,"Admin Service","Django","Модели тенантов, локаций, устройств; UI/REST")
+    ContainerDb(pg,"PostgreSQL","RDBMS","Хранение телеметрии и справочников")
+  }
+}
+
+
+Rel(sensors, device_gateway, "HTTP POST /send-parameters", "JSON")
+Rel(device_gateway, kafka, "publish()", "Kafka / parameters")
+Rel(telemetry_svc, kafka, "subscribe()", "Kafka / parameters")
+Rel(alert_worker, kafka, "subscribe()", "Kafka / parameters")
+Rel(telemetry_svc, pg, "INSERT telemetry_telemetry")
+Rel(admin_service, pg, "DDL/CRUD")
+Rel(user, admin_service, "Web UI / REST", "HTTPS")
+Rel(alert_worker, ext_client, "", "")
+
+
+@enduml
+```
