@@ -1,0 +1,217 @@
+```puml
+@startuml
+!include ./libs/C4_Component.puml
+
+Container(device_gateway, "Device Gateway", "FastAPI") {
+  class KafkaProducer {
+    - _producer: AIOKafkaProducer
+    + start()
+    + stop()
+    + send(topic, key, value)
+  }
+
+  class SendParametersService {
+    - producer: KafkaProducer
+    - topic: str
+    + __call__(parameters)
+  }
+
+  KafkaProducer <.. SendParametersService : uses
+}
+
+Container(alert_worker, "Alert Worker", "Pure Python") {
+  class DeviceParameters <<pydantic>> {
+    + tenant_id: int
+    + device_id: int
+    + key: str
+    + value: dict[str, Any]
+    + ts: datetime
+    --
+    + model_validate_json(payload: str): DeviceParameters
+  }
+
+  class MessageHandler {
+    - exceeded_alert_getter(dp: DeviceParameters) : bool
+    - exceeded_control_getter(dp: DeviceParameters) : bool
+    --
+    + __call__(dp: DeviceParameters) : (bool, bool)
+  }
+
+  class get_exceeded_alert <<function>> {
+    + __call__(dp: DeviceParameters) : bool
+  }
+
+  class get_exceeded_control <<function>> {
+    + __call__(dp: DeviceParameters) : bool
+  }
+
+  MessageHandler o--> get_exceeded_alert : по умолчанию
+  MessageHandler o--> get_exceeded_control : по умолчанию
+  MessageHandler ..> DeviceParameters : входные данные
+  AIOKafkaConsumer ..> DeviceParameters : msg.value → validate_json
+}
+
+Container(admin-service, "Admin Service", "Django") {
+  class AuthUser <<DjangoModel>> {
+    + id: int (PK)
+    + username: str (unique)
+    + email: str
+    + is_active: bool
+    + is_staff: bool
+    + is_superuser: bool
+    + date_joined: datetime
+  }
+
+  class Tenant <<DjangoModel>> {
+    + id: int (PK)
+    + name: str
+    + slug: str (unique)
+    + created_at: datetime
+    --
+    unique: (slug)
+  }
+
+  class UserProfile <<DjangoModel>> {
+    + id: int (PK)
+    + user_id: FK -> AuthUser
+    + tenant_id: FK -> Tenant
+    + role: str  "owner|admin|viewer"
+    + is_active: bool
+    + created_at: datetime
+    --
+    unique: (tenant_id, user_id)
+    index: (tenant_id, role)
+  }
+
+  class Location <<DjangoModel>> {
+    + id: int (PK)
+    + tenant_id: FK -> Tenant
+    + name: str
+    + address: str?
+    + parent_id: FK -> Location?
+    + created_at: datetime
+    --
+    unique: (tenant_id, name)
+    index: (tenant_id, parent_id)
+  }
+
+  class DeviceType <<DjangoModel>> {
+    + id: int (PK)
+    + code: str (unique)
+    + name: str
+    + description: str?
+    + capabilities: JSON
+    --
+    + unique: (code)
+  }
+
+  class Device <<DjangoModel>> {
+    + id: int (PK)
+    + tenant_id: FK -> Tenant
+    + location_id: FK -> Location
+    + type_id: FK -> DeviceType
+    + uid: str   "уникален в пределах тенанта"
+    + name: str
+    + status: str "active|inactive|fault"
+    + metadata: JSON
+    + created_at: datetime
+    --
+    + unique: (tenant_id, uid)
+    + index: (tenant_id, location_id)
+  }
+
+  class Telemetry <<DjangoModel>> {
+    + id: bigint (PK)
+    + tenant_id: FK -> Tenant
+    + device_id: FK -> Device
+    + key: str     "например: temperature"
+    + value: JSON  "{c: 22.5, status: ok}"
+    + ts: datetime "UTC"
+    --
+    + index: (tenant_id, device_id, ts DESC)
+    + index: (tenant_id, key, ts DESC)
+  }
+
+  class AlertRule <<DjangoModel>> {
+    + id: int (PK)
+    + tenant_id: FK
+    + device_type_id: FK
+    + device_id: FK
+    + key: str
+    + op: str
+    + threshold: decimal
+    + severity: str
+    + enabled: bool
+    + created_at: datetime
+    --
+    + check: (device_id IS NULL OR device_type_id IS NULL) "таргетим либо тип, либо конкретное устройство"
+    + index: (tenant_id, enabled, key)
+  }
+
+  class AlertEvent <<DjangoModel>> {
+    + id: bigint (PK)
+    + tenant_id: FK -> Tenant
+    + device_id: FK -> Device
+    + rule_id: FK -> AlertRule
+    + key: str
+    + value: JSON
+    + ts: datetime
+    + status: str "raised|resolved|ack"
+    --
+    + index: (tenant_id, device_id, ts DESC)
+    + index: (tenant_id, status, ts DESC)
+  }
+
+  AuthUser "1" -- "0..1" UserProfile : one-to-one (через unique)
+  Tenant "1" -- "0..*" UserProfile
+
+  Tenant "1" -- "0..*" Location
+  Location "0..1" --> "0..*" Location : parent (self-FK)
+
+  Tenant "1" -- "0..*" Device
+  Location "1" -- "0..*" Device
+  DeviceType "1" -- "0..*" Device
+
+  Tenant "1" -- "0..*" Telemetry
+  Device "1" -- "0..*" Telemetry
+
+  Tenant "1" -- "0..*" AlertRule
+  DeviceType "0..1" -- "0..*" AlertRule
+  Device "0..1" -- "0..*" AlertRule
+
+  Tenant "1" -- "0..*" AlertEvent
+  Device "1" -- "0..*" AlertEvent
+  AlertRule "1" -- "0..*" AlertEvent
+}
+
+Container(telemetry-service, "Telemetry service", "Pure Python") {
+  class TelemetryMessage <<pydantic>> {
+    + tenant_id: int (>=1)
+    + device_id: int (>=1)
+    + key: str (1..80)
+    + value: Dict[str, Any]
+    + ts: datetime (UTC)
+    --
+    + @field_validator('ts')
+  }
+
+  class DB {
+    - dsn: str
+    - _pool: AsyncConnectionPool | None
+    --
+    + pool: AsyncConnectionPool
+    + close(): None
+    + insert_telemetry(tenant_id:int, device_id:int, key:str, value:JSON, ts:datetime): None
+  }
+
+  class consume <<async fn>> {
+    ..pipeline..
+  }
+
+  ' ===== Связи =====
+  consume ..> TelemetryMessage : валидация сообщения
+  consume ..> DB : вызывает insert_telemetry()
+
+}
+@enduml
+```

@@ -1,154 +1,265 @@
 # Project_template
 
-Это шаблон для решения проектной работы. Структура этого файла повторяет структуру заданий. Заполняйте его по мере работы над решением.
+# WarmHouse — микросервисная платформа «умного дома»
+> Старый монолит (Go) → новая экосистема микросервисов (Python/Django + Kafka + Postgres)
 
-# Задание 1. Анализ и планирование
+Этот репозиторий содержит **два поколения** проекта:
+- `apps/smart_home` — **исторический монолит** на Go (Gin + Postgres), использующий внешнее API температуры;
+- `admin-service`, `device-gateway`, `telemetry-service`, `alert-worker` — **новые микросервисы**, объединённые брокером сообщений Kafka и общей БД Postgres.
+В корне расположен `docker-compose.yml` для локального запуска всей системы.
 
-<aside>
+---
 
-Чтобы составить документ с описанием текущей архитектуры приложения, можно часть информации взять из описания компании и условия задания. Это нормально.
+## 1) Концепция и целевая архитектура
 
-</aside
+### Назначение
+Платформа собирает телеметрию от устройств, хранит её, позволяет управлять устройствами и настраивать правила оповещений/автоконтроля.
 
-### 1. Описание функциональности монолитного приложения
+### Переход от монолита к микросервисам
+Монолит на Go обеспечивал REST‑интерфейс для устройств и UI‑операций. В новой версии функциональность разделена:
+- **Входной шлюз устройств** (`device-gateway`) принимает параметры от устройств и публикует события в Kafka.
+- **Сервис телеметрии** (`telemetry-service`) читает поток событий из Kafka и **записывает** данные в Postgres.
+- **Сервис алертов** (`alert-worker`) анализирует поток телеметрии и принимает решения по **оповещениям** и **сигналам управления**.
+- **Админ‑панель / справочники** (`admin-service`) — Django‑приложение с моделями «тенанты / локации / устройства / телеметрия», работает на той же БД.
 
-**Управление отоплением:**
+Таким образом, запись телеметрии и реакция на события вынесены из веб‑контуров и распараллелены через Kafka.
 
-- Пользователи могут…
-- Система поддерживает…
-- …
-
-**Мониторинг температуры:**
-
-- Пользователи могут…
-- Система поддерживает…
-- …
-
-### 2. Анализ архитектуры монолитного приложения
-
-Перечислите здесь основные особенности текущего приложения: какой язык программирования используется, какая база данных, как организовано взаимодействие между компонентами и так далее.
-
-### 3. Определение доменов и границы контекстов
-
-Опишите здесь домены, которые вы выделили.
-
-### **4. Проблемы монолитного решения**
-
-- …
-- …
-- …
-
-Если вы считаете, что текущее решение не вызывает проблем, аргументируйте свою позицию.
-
-### 5. Визуализация контекста системы — диаграмма С4
-
-Добавьте сюда диаграмму контекста в модели C4.
-
-Чтобы добавить ссылку в файл Readme.md, нужно использовать синтаксис Markdown. Это делают так:
-
-```markdown
-[Текст ссылки](URL)
+### Высокоуровневый поток данных
+```
+Device → (HTTP POST) → device-gateway → (Kafka topic: TOPIC)
+         └──────────────────────────────────────┬─────────────────────────────┘
+                                                ▼
+                                       telemetry-service (→ Postgres)
+                                                ▼
+                                          admin-service (чтение из БД)
+                                                ▲
+                                       alert-worker (реакции/алерты)
 ```
 
-Замените `Текст ссылки` текстом, который хотите использовать для ссылки. Вместо `URL` вставьте адрес, на который должна вести ссылка. Например:
+---
 
-```markdown
-[Посетите Яндекс](https://ya.ru/)
-```
-
-# Задание 2. Проектирование микросервисной архитектуры
-
-В этом задании вам нужно предоставить только диаграммы в модели C4. Мы не просим вас отдельно описывать получившиеся микросервисы и то, как вы определили взаимодействия между компонентами To-Be системы. Если вы правильно подготовите диаграммы C4, они и так это покажут.
-
-**Диаграмма контейнеров (Containers)**
-
-Добавьте диаграмму.
-
-**Диаграмма компонентов (Components)**
-
-Добавьте диаграмму для каждого из выделенных микросервисов.
-
-**Диаграмма кода (Code)**
-
-Добавьте одну диаграмму или несколько.
-
-# Задание 3. Разработка ER-диаграммы
-
-Добавьте сюда ER-диаграмму. Она должна отражать ключевые сущности системы, их атрибуты и тип связей между ними.
-
-# Задание 4. Создание и документирование API
-
-### 1. Тип API
-
-Укажите, какой тип API вы будете использовать для взаимодействия микросервисов. Объясните своё решение.
-
-### 2. Документация API
-
-Здесь приложите ссылки на документацию API для микросервисов, которые вы спроектировали в первой части проектной работы. Для документирования используйте Swagger/OpenAPI или AsyncAPI.
-
-# Задание 5. Работа с docker и docker-compose
-
-Перейдите в apps.
-
-Там находится приложение-монолит для работы с датчиками температуры. В README.md описано как запустить решение.
-
-Вам нужно:
-
-1) сделать простое приложение temperature-api на любом удобном для вас языке программирования, которое при запросе /temperature?location= будет отдавать рандомное значение температуры.
-
-Locations - название комнаты, sensorId - идентификатор названия комнаты
+## 2) Состав репозитория
 
 ```
-	// If no location is provided, use a default based on sensor ID
-	if location == "" {
-		switch sensorID {
-		case "1":
-			location = "Living Room"
-		case "2":
-			location = "Bedroom"
-		case "3":
-			location = "Kitchen"
-		default:
-			location = "Unknown"
-		}
-	}
-
-	// If no sensor ID is provided, generate one based on location
-	if sensorID == "" {
-		switch location {
-		case "Living Room":
-			sensorID = "1"
-		case "Bedroom":
-			sensorID = "2"
-		case "Kitchen":
-			sensorID = "3"
-		default:
-			sensorID = "0"
-		}
-	}
+architecture-pro-warmhouse/
+├─ admin-service/                # Django 5: админка и доменные модели
+│  ├─ apps/
+│  │  ├─ core/                   # Базовые модели: TimeStamped, Tenant, TenantBoundModel
+│  │  ├─ tenants/                # Пользователи ↔ тенанты
+│  │  ├─ locations/              # Локации/помещения
+│  │  ├─ devices/                # Устройства
+│  │  └─ telemetry/              # Модель TelemetryRecord (табл. telemetry_telemetry)
+│  ├─ config/                    # settings/urls/wsgi/asgi
+│  ├─ Dockerfile, pyproject.toml, poetry.lock
+│  └─ manage.py
+│
+├─ device-gateway/               # FastAPI: входной REST для устройств → Kafka
+│  ├─ app/
+│  │  ├─ api/endpoints.py        # POST /send-parameters/
+│  │  ├─ schemas.py              # DeviceParameters (Pydantic)
+│  │  ├─ producer.py             # AIOKafkaProducer (singleton)
+│  │  ├─ services.py             # Пакетная/штучная отправка в Kafka
+│  │  └─ config.py               # BROKER_URL, TOPIC, ACKS, LINGER_MS, etc.
+│  ├─ Dockerfile, pyproject.toml
+│
+├─ telemetry-service/            # Consumer: Kafka → Postgres
+│  ├─ app/
+│  │  ├─ main.py                 # Читает Kafka, валидирует, пишет в БД
+│  │  ├─ db.py                   # psycopg_pool, insert into telemetry_telemetry
+│  │  ├─ schemas.py              # TelemetryMessage (Pydantic)
+│  │  └─ settings.py             # POSTGRES_DSN, KAFKA_* из .env
+│  ├─ Dockerfile, pyproject.toml
+│
+├─ alert-worker/                 # Реакции/правила на поток телеметрии
+│  ├─ app/
+│  │  ├─ main.py                 # Consumer Kafka
+│  │  ├─ services.py             # MessageHandler → exceeded_alert/control
+│  │  ├─ get_exceede_alerts.py   # Заглушки правил (TODO)
+│  │  └─ settings.py
+│  ├─ Dockerfile, pyproject.toml
+│
+├─ apps/smart_home/              # Исторический монолит на Go (Gin + Postgres)
+│  ├─ handlers/, models/, services/, db/
+│  ├─ main.go, openapi.yaml, Dockerfile, go.mod
+│
+├─ apps/wiremock/                # Стаб внешнего API температуры (GET /temperature?location=...)
+│  └─ mappings/temperature.json
+│
+├─ plantuml/                     # Диаграммы C4/контекст (по заданию)
+├─ docker-compose.yml            # Композиция: Postgres, Kafka, микросервисы и т. п.
+└─ .env                          # Конфигурация окружения
 ```
 
-2) Приложение следует упаковать в Docker и добавить в docker-compose. Порт по умолчанию должен быть 8081
+---
 
-3) Кроме того для smart_home приложения требуется база данных - добавьте в docker-compose файл настройки для запуска postgres с указанием скрипта инициализации ./smart_home/init.sql
+## 3) Домены и модели (Django `admin-service`)
 
-Для проверки можно использовать Postman коллекцию smarthome-api.postman_collection.json и вызвать:
+- **Core**
+  - `Tenant` — владелец данных.
+  - `TenantBoundModel` — базовый класс для всех «мульти‑тенант» сущностей.
+  - `TimeStampedModel` — `created_at` / `updated_at`.
+- **Devices**
+  - `Device` — принадлежит Tenant; имеет атрибуты устройства.
+- **Locations**
+  - `Location` — географические/логические места, к которым могут быть привязаны устройства.
+- **Telemetry**
+  - `TelemetryRecord` — временной ряд `device + key + value + ts`.
+  - Таблица: `telemetry_telemetry`, индексы на `(tenant, device, key, ts)` и `(tenant, ts)`.
+- **Tenants**
+  - `TenantUser` — членство пользователя в тенанте.
 
-- Create Sensor
-- Get All Sensors
+Все модели уже мигрированы (папки `migrations` присутствуют).
 
-Должно при каждом вызове отображаться разное значение температуры
+---
 
-Ревьюер будет проверять точно так же.
+## 4) API и контракты
 
+### 4.1 Входной REST для устройств (`device-gateway`)
+- **POST** `/send-parameters/` — принимает **один объект** или **список**:
+```json
+{
+  "tenant_id": 1,
+  "device_id": 42,
+  "key": "temperature",
+  "value": {"c": 22.5, "status": "ok"},
+  "ts": "2025-10-26T12:34:56Z"
+}
+```
+Валидируется Pydantic‑моделью `DeviceParameters`, затем каждое сообщение сериализуется в JSON и публикуется в Kafka (топик `TOPIC`).
 
-# **Задание 6. Разработка MVP**
+### 4.2 Поток телеметрии (Kafka)
+- Ключ: UUID, значение: JSON (`DeviceParameters`).
+- Топик задаётся переменной окружения `TOPIC`.
 
-Необходимо создать новые микросервисы и обеспечить их интеграции с существующим монолитом для плавного перехода к микросервисной архитектуре. 
+### 4.3 Запись в БД (`telemetry-service`)
+- Консьюмер преобразует вход в `TelemetryMessage` и вызывает `DB.insert_telemetry(...)`.
+- Запись попадает в `telemetry_telemetry` и видна в `admin-service`.
 
-### **Что нужно сделать**
+### 4.4 Админ‑панель (`admin-service`)
+- Доступно `/admin/` (Django Admin) для выполнения CRUD‑операций по доменным сущностям и просмотра телеметрии.
 
-1. Создайте новые микросервисы для управления телеметрией и устройствами (с простейшей логикой), которые будут интегрированы с существующим монолитным приложением. Каждый микросервис на своем ООП языке.
-2. Обеспечьте взаимодействие между микросервисами и монолитом (при желании с помощью брокера сообщений), чтобы постепенно перенести функциональность из монолита в микросервисы. 
+### 4.5 Монолит (Go) — для сравнения и обратной совместимости
+- Swagger/OAS: `apps/smart_home/openapi.yaml`.
+- Использует **WireMock** (`apps/wiremock`) для эмуляции внешнего API температуры:
+  - `GET /temperature?location=...` возвращает шаблонный JSON.
 
-В результате у вас должны быть созданы Dockerfiles и docker-compose для запуска микросервисов. 
+---
+
+## 5) Запуск и локальная среда
+
+### 5.1 Подготовка
+1. Установите Docker и Docker Compose.
+2. Скопируйте `.env` из примера и заполните ключевые параметры (см. ниже).
+
+### 5.2 Минимальный набор переменных окружения (`.env`)
+> Значения зависят от вашей машины; приведены имена, используемые кодом.
+
+**Postgres**
+```
+POSTGRES_DB=smarthome
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+```
+
+**Kafka**
+```
+KAFKA_BOOTSTRAP_SERVERS=smarthome-micro-kafka:9092
+TOPIC=parameters
+KAFKA_GROUP_ID=telemetry-service-group
+KAFKA_AUTO_OFFSET_RESET=latest
+KAFKA_TOPIC_PARTITIONS=1
+```
+
+**Device Gateway**
+```
+BROKER_URL=smarthome-micro-kafka:9092
+SERVER_SCHEME=http
+SERVER_IP=0.0.0.0
+SERVER_DOMAIN=localhost
+SERVER_PORT=8088
+KAFKA_ACKS=1
+LINGER_MS=0
+KAFKA_MAX_BATCH_SIZE=16384
+```
+
+**Django Admin**
+```
+DEBUG=True
+ALLOWED_HOSTS=*
+```
+
+### 5.3 Запуск через Docker Compose
+Из корня репозитория:
+```bash
+docker compose up -d --build
+```
+
+Ожидаемые эндпоинты (по умолчанию, см. порты в `docker-compose.yml`):
+- **Device Gateway** (FastAPI): `http://localhost:<PORT>/openapi.json`
+- **Django Admin**: `http://localhost:<PORT>/admin/`
+- **WireMock (температура)**: `http://localhost:8081/temperature?location=living-room`
+
+> Примечание: в `docker-compose.yml` уже предусмотрены сервисы Postgres, Kafka и консоль/инициализация топика. Если порт‑маппинги изменены — используйте фактические значения.
+
+### 5.4 Быстрая проверка
+Отправьте одно измерение в шлюз устройств:
+```bash
+curl -X POST http://localhost:<DEVICE_GATEWAY_PORT>/send-parameters/   -H "Content-Type: application/json"   -d '{
+        "tenant_id": 1,
+        "device_id": 42,
+        "key": "temperature",
+        "value": {"c": 22.5, "status": "ok"},
+        "ts": "2025-10-26T12:34:56Z"
+      }'
+```
+Ожидаемо:
+- сообщение попадёт в Kafka (`TOPIC`);
+- `telemetry-service` запишет строку в Postgres (`telemetry_telemetry`);
+- запись будет видна в Django Admin.
+
+---
+
+## 6) Сборка/запуск сервисов без Docker (опционально)
+
+### Python‑сервисы
+```bash
+# Пример для device-gateway
+cd device-gateway
+poetry install
+poetry run uvicorn app.main:app --host 0.0.0.0 --port 8088
+```
+
+### Go‑монолит
+```bash
+cd apps/smart_home
+go mod download
+go run main.go
+```
+
+---
+
+## 7) Разработка и TODO
+
+- [ ] **alert-worker** — реализовать реальные правила в `get_exceede_alerts.py` (сейчас заглушки `return True`).
+- [ ] **observability** — добавить Prometheus/Grafana и структурированные логи.
+- [ ] **аутентификация/авторизация** — сквозные tenant‑контексты от шлюза до БД.
+- [ ] **контроль устройств** — отдельный топик/сервис для команд управления.
+- [ ] **миграции БД** — зафиксировать стратегию применения миграций вместе с CI.
+- [ ] **контрактные тесты** между `device-gateway` ↔ `telemetry-service` (Pact, JSONSchema).
+
+---
+
+## 8) Справка по ключевым файлам
+
+- `device-gateway/app/schemas.py` — контракт `DeviceParameters`.
+- `telemetry-service/app/schemas.py` — нормализация входа (`ts` как ISO8601/Unix).
+- `telemetry-service/app/db.py` — вставка в `telemetry_telemetry` через `psycopg_pool`.
+- `admin-service/apps/telemetry/models.py` — целевая таблица и индексы.
+- `apps/wiremock/mappings/temperature.json` — стаб внешнего API.
+
+---
+
+## 9) Лицензия и авторство
+Автор: Sergey Protasov <protasovse@yandex.ru>. Стек и код предназначены для учебно‑практической разработки и демонстрации перехода от монолита к микросервисам.

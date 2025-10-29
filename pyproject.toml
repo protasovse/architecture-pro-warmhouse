@@ -1,0 +1,55 @@
+[tool.ruff]
+
+line-length = 88
+indent-width = 4
+target-version = "py313"
+
+exclude = [
+    "*",
+    "!*.py",
+    "b3_bpmn",
+    "b3_db_constructor",
+    "b3platform",
+    "front",
+    "scripts",
+    "integrations/platformv_iam",
+]
+
+
+[tool.ruff.lint]
+select = [
+    "E", # Ошибки PEP8
+    "F", # Pyflakes (неиспользуемые переменные, функции и импорты)
+    "W", # Предупреждения PEP8
+    "C90", # Ошибки стиля (например, отсутствие docstrings)
+    "I", # Упорядочение импортов
+    "T", # Проверка аннотаций типов
+]
+
+ignore = [
+    "E501", # Разрешаем длину строки для black
+    "E203", # Разрешаем пробелы перед ':' для black
+    "F403", # Import *
+    "F405", # May be undefined, or defined from star imports
+]
+
+fixable = ["ALL"]
+
+[tool.ruff.format]
+quote-style = "double"
+[project]
+name = "architecture-pro-warmhouse"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "protasovse",email = "protasovse@yandex.ru"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

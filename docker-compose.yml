@@ -1,0 +1,174 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smarthome-micro-postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - smarthome-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  swagger:
+    image: swaggerapi/swagger-ui
+    container_name: smarthome-micro-swagger
+    env_file:
+      - .env
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./openapi.yaml:/openapi/openapi.yaml:ro
+    environment:
+      SWAGGER_JSON: /openapi/openapi.yaml
+    networks:
+      - smarthome-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: smarthome-micro-kafka
+    env_file:
+      - .env
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - smarthome-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  kafka-topic-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: smarthome-micro-kafka-topic-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - smarthome-network
+    command: >
+      bash -lc "echo \"Ensuring topic: $TOPIC\" &&
+      kafka-topics --bootstrap-server smarthome-micro-kafka:9092 --create --if-not-exists
+      --topic \"$TOPIC\" --partitions \"$KAFKA_TOPIC_PARTITIONS\" --replication-factor 1 &&
+      echo \"Topic $TOPIC is ready.\""
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    container_name: smarthome-micro-redpanda-console
+    env_file:
+      - .env
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy     # Ждать готовности Kafka
+    networks:
+      - smarthome-network
+
+  admin-service:
+    build:
+      context: ./admin-service
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-admin-service
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DEBUG: False  # Переопределяем
+    depends_on:
+      - postgres
+    volumes:
+      - django_static_volume:/app/staticfiles
+      - django_media_volume:/app/media
+    networks:
+      - smarthome-network
+    command: >
+      sh -c "cd /app &&
+      poetry run python manage.py migrate &&
+      poetry run python manage.py collectstatic --noinput &&
+      if [ \"$DEBUG\" = \"True\" ]; then
+        poetry run python manage.py runserver 0.0.0.0:8000;
+      else
+        poetry run daphne -b 0.0.0.0 -p 8000 config.asgi:application;
+      fi"
+
+  device-gateway:
+    build:
+      context: ./device-gateway
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-device-gateway
+    restart: always
+    ports:
+      - "8008:8008"
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      sh -c "poetry run uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8008
+      --workers $(python -c 'import multiprocessing as m; print(max(1, m.cpu_count() // 2))')
+      --log-level info"
+    networks:
+      - smarthome-network
+
+  alert-worker:
+    build:
+      context: ./alert-worker
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-alert-worker
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      poetry run python -m app.main
+    networks:
+      - smarthome-network
+
+  telemetry-service:
+    build:
+      context: ./telemetry-service
+      dockerfile: Dockerfile
+    container_name: smarthome-micro-telemetry-service
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      poetry run python -m app.main
+    networks:
+      - smarthome-network
+
+volumes:
+  postgres_data:
+  kafka_data:
+  django_static_volume:
+  django_media_volume:
+
+networks:
+  smarthome-network:
+    driver: bridge

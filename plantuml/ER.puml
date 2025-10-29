@@ -1,0 +1,131 @@
+```puml
+@startuml
+!theme plain
+hide methods
+skinparam linetype ortho
+skinparam entity {
+  BackgroundColor White
+  BorderColor Black
+  ArrowColor Black
+}
+
+entity "Tenant" as tenant {
+  * id : bigint <<PK>>
+  --
+  slug : varchar(80) <<UQ>>
+  name : varchar(120)
+  created_at : timestamptz
+  updated_at : timestamptz
+}
+
+entity "User" as user {
+  * id : bigint <<PK>>
+  --
+  email : varchar(255) <<UQ>>
+  is_active : bool
+  created_at : timestamptz
+}
+
+entity "TenantUser" as tenant_user {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  user_id   : bigint <<FK user.id>>
+  role : enum('owner','admin','member')
+  is_active : bool
+  created_at : timestamptz
+}
+
+entity "Home" as home {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  name : varchar(120)
+  slug : varchar(80)
+  address : varchar(255) ?
+  created_at : timestamptz
+}
+
+entity "Room" as room {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  home_id   : bigint <<FK home.id>>
+  name : varchar(120)
+  slug : varchar(80)
+  created_at : timestamptz
+}
+
+entity "DeviceType" as device_type {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  key : varchar(80)
+  display_name : varchar(120)
+  description : text ?
+  capabilities : jsonb ?
+  created_at : timestamptz
+}
+
+entity "Device" as device {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  type_id   : bigint <<FK device_type.id>>
+  home_id   : bigint <<FK home.id>>
+  room_id   : bigint <<FK room.id>>
+  name : varchar(120)
+  slug : varchar(80)
+  serial_number : varchar(120)
+  status : enum('online','offline','error')
+  last_seen : timestamptz
+  metadata : jsonb
+  created_at : timestamptz
+}
+
+entity "TelemetryRecord" as telemetry {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  device_id : bigint <<FK device.id>>
+  key   : varchar(80)
+  value : jsonb
+  ts    : timestamptz
+  received_at : timestamptz
+}
+
+entity "DeviceModule" as device_module {
+  * id : bigint <<PK>>
+  --
+  tenant_id : bigint <<FK tenant.id>>
+  device_id : bigint <<FK device.id>>
+  key : varchar(80)
+  version : varchar(40)
+  config : jsonb
+  created_at : timestamptz
+}
+
+
+tenant ||--o{ tenant_user : "1 : *"
+user   ||--o{ tenant_user : "1 : *"
+
+tenant ||--o{ home         : "1 : *"
+tenant ||--o{ room         : "1 : *"
+tenant ||--o{ device_type  : "1 : *"
+tenant ||--o{ device       : "1 : *"
+tenant ||--o{ telemetry    : "1 : *"
+tenant ||--o{ device_module: "1 : *"
+
+home ||--o{ room : "1 : *"
+
+home ||--o{ device : "1 : *"
+room ||--o{ device : "1 : *"
+
+device_type ||--o{ device : "1 : *"
+
+device ||--o{ telemetry : "1 : *"
+
+device ||--o{ device_module : "1 : *
+
+@enduml
+```

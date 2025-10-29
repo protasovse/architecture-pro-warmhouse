@@ -1,0 +1,23 @@
+```puml
+@startuml
+
+!include ./libs/C4_Context.puml
+!include ./libs/C4_Container.puml
+
+Person(specialist, "Специалист по подключению")
+Person(user, "Пользователь")
+
+System_Boundary(sys, "SmartHome (монолит)") {
+  Container(monolith, "SmartHome Monolith API", "Go/Gin")
+}
+
+System_Ext(tempapi, "Датчики температуры")
+
+Rel(specialist, monolith, "Датчик температуры", "Просмотр/добавить/изменить/удалить")
+Rel(user, monolith, "Отопление", "Просмотр/задать")
+
+Rel(tempapi, monolith, "Ответ", "JSON")
+Rel(monolith, tempapi, "Запрос", "HTTP /temperature?location=<string>")
+
+@enduml
+```

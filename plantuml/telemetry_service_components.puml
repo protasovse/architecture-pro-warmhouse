@@ -1,0 +1,21 @@
+```puml
+@startuml
+!include ./libs/C4.puml
+!include ./libs/C4_Component.puml
+
+
+title Telemetry Service — Components
+
+
+Container(telemetry_svc,"Telemetry Service","Python") {
+  Component(consumer,"KafkaConsumer Loop","aiokafka","consume()")
+  Component(parser,"TelemetryMessage","pydantic","from_kafka_bytes()")
+  Component(db,"DB","psycopg_pool","AsyncConnectionPool; insert_telemetry()")
+}
+
+
+Rel(consumer, parser, "parse/validate")
+Rel(consumer, db, "insert_telemetry()")
+
+@enduml
+```

@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/temperature",
+    "queryParameters": {
+      "location": {
+        "matches": ".*"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "location": "{{request.query.location}}",
+      "value": 24.5,
+      "unit": "C",
+      "timestamp": "2025-10-18T19:00:00Z"
+    },
+    "transformers": [
+      "response-template"
+    ],
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}
